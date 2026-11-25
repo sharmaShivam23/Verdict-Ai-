@@ -1,8 +1,7 @@
 "use client";
 
-import { useExperiment, useFlagsmith } from "@flagsmith/flagsmith/react";
+import { useFlagsmith } from "@flagsmith/flagsmith/react";
 import { useState } from "react";
-import { pick } from "@/lib/experiment";
 import { useDemo } from "./demo-provider";
 
 // The experiment under test: which wording makes visitors click "checkout"?
@@ -14,7 +13,7 @@ export default function CheckoutButton() {
   const { resetVisitor } = useDemo();
   const [clicked, setClicked] = useState(false);
 
-  const label = pick(useExperiment("checkout_cta_test"), { control: "Checkout", variant_a: "Buy now, free returns" });
+  const label = "Buy now, free returns";
 
   function onClick() {
     // The conversion event the experiment's metric counts (occurrence).
