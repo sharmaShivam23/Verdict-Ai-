@@ -97,7 +97,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "create_experiment",
     description:
-      "Create (but do not start) an experiment on a multivariate flag. variant_allocations lists each variation option id with the percent of ENROLLED traffic it receives; control gets the remainder. Requires human approval.",
+      "Create (but do not start) an experiment on a multivariate flag. variant_allocations lists each variation option id with the percent of ENROLLED traffic it receives; control gets the remainder. It must include EVERY variation of the flag (Flagsmith rejects the experiment otherwise). Requires human approval.",
     input_schema: {
       type: "object",
       properties: {
