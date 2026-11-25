@@ -83,15 +83,32 @@ describe("applyCleanup (the codemod)", () => {
     expect(() => applyCleanup(FILE, 'a")|(', "control")).toThrow(/Unsupported flag name/);
   });
 
-  it("works on the REAL demo file in this repo", () => {
-    const real = readFileSync("app/demo/checkout-button.tsx", "utf8");
-    const r = applyCleanup(real, "checkout_cta_test", "variant_a");
+  // A FROZEN copy of the demo file before cleanup. The tests must never read the
+  // live demo file unconditionally: cleaning that file is exactly what the tool
+  // does, so a test that expects the experiment code to still be there fails on
+  // every cleanup PR the agent opens (this happened on PR #1).
+  const BEFORE = readFileSync("lib/agent/fixtures/checkout-button.before.txt", "utf8");
+
+  const checkRealShape = (source: string) => {
+    const r = applyCleanup(source, "checkout_cta_test", "variant_a");
     expect(r.code).toContain('const label = "Buy now, free returns";');
     expect(r.code).not.toContain("useExperiment"); // no import, no call, no mention
     expect(r.code).not.toContain("@/lib/experiment");
     expect(r.code).toContain("useFlagsmith"); // still needed for trackEvent
     expect(r.code).toContain("trackEvent");
+  };
+
+  it("works on a frozen copy of the real demo file", () => checkRealShape(BEFORE));
+
+  it("is a no-op error on a file that was already cleaned (so a second run cannot corrupt it)", () => {
+    const cleaned = applyCleanup(BEFORE, "checkout_cta_test", "variant_a").code;
+    expect(() => applyCleanup(cleaned, "checkout_cta_test", "variant_a")).toThrow(/No pick\(useExperiment/);
   });
+
+  // Guards against the demo file drifting away from the convention, but only
+  // while the experiment code is still there (it is gone after a cleanup).
+  const live = readFileSync("app/demo/checkout-button.tsx", "utf8");
+  it.runIf(/pick\(\s*useExperiment\(/.test(live))("the live demo file still follows the convention", () => checkRealShape(live));
 });
 
 describe("keptBranchFor (derived from the recorded decision)", () => {
