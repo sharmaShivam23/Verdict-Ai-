@@ -27,8 +27,9 @@ export function parseExperiment(v: string | string[] | undefined): string | unde
   return typeof v === "string" && /^\d{1,12}$/.test(v) ? v : undefined;
 }
 
-export function defaultExperimentId(): string {
-  return process.env.FLAGSMITH_EXPERIMENT_ID ?? "406";
+/** Set FLAGSMITH_EXPERIMENT_ID to pin the experiment shown in live mode. Otherwise the first one is used. */
+export function defaultExperimentId(): string | undefined {
+  return parseExperiment(process.env.FLAGSMITH_EXPERIMENT_ID);
 }
 
 export interface ExperimentListItem {
@@ -62,6 +63,9 @@ export async function loadSnapshot(
     return { error: "Live mode needs FLAGSMITH_API_KEY in .env.local." };
   }
   const id = experimentId ?? defaultExperimentId();
+  if (!id) {
+    return { error: "No experiments found in this Flagsmith environment yet. Create one (the Agent page can do it), or use Replay." };
+  }
   try {
     const [detail, results] = await Promise.all([
       getExperiment(id),

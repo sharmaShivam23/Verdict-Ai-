@@ -34,11 +34,12 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
   const mode = parseMode(sp.mode);
   const scenario = parseScenario(sp.scenario);
-  const experimentId = parseExperiment(sp.experiment) ?? defaultExperimentId();
-  const [{ snapshot, error }, experiments] = await Promise.all([
-    loadSnapshot(mode, scenario, experimentId),
-    mode === "live" ? listExperiments() : Promise.resolve([]),
-  ]);
+  // In live mode the experiment is: the ?experiment= link, else FLAGSMITH_EXPERIMENT_ID,
+  // else the first experiment in the environment.
+  const experiments = mode === "live" ? await listExperiments() : [];
+  const experimentId =
+    parseExperiment(sp.experiment) ?? defaultExperimentId() ?? (experiments[0] ? String(experiments[0].id) : undefined);
+  const { snapshot, error } = await loadSnapshot(mode, scenario, experimentId);
   const decision = snapshot ? referee(snapshot) : null;
 
   return (
