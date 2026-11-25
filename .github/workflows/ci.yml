@@ -18,6 +18,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Next.js generates global types (LayoutProps etc.) into .next/. A clean
+      # checkout has none, so generate them before the typecheck.
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npx vitest run
