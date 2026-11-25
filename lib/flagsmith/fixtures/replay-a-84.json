@@ -1,0 +1,120 @@
+{
+  "_note": "Captured from the live Flagsmith Admin API on 2026-11-25. Experiment 490, SIMULATED traffic (identities sim-*).",
+  "detail": {
+    "id": 490,
+    "feature": {
+      "id": 304699,
+      "name": "replay_checkout_a",
+      "type": "MULTIVARIATE",
+      "initial_value": "control",
+      "multivariate_options": [
+        {
+          "id": 36899,
+          "uuid": "6007cfea-d266-4aeb-8418-8deddd621500",
+          "type": "unicode",
+          "integer_value": null,
+          "string_value": "variant_a",
+          "boolean_value": null,
+          "default_percentage_allocation": 0,
+          "key": "Variant_1"
+        }
+      ]
+    },
+    "name": "Replay A: checkout wording",
+    "hypothesis": "A benefit-led button label increases checkout clicks (simulated traffic).",
+    "status": "running",
+    "metrics": [
+      {
+        "id": 531,
+        "metric": 479,
+        "metric_name": "Replay conversion",
+        "aggregation": "occurrence",
+        "direction": "up",
+        "expected_direction": "increase",
+        "created_at": "2026-11-25T18:24:57.350474Z"
+      }
+    ],
+    "experiment_rollout": {
+      "enabled": true,
+      "rollout_percentage": 100,
+      "feature_state_value": {
+        "type": "string",
+        "value": "control"
+      },
+      "multivariate_feature_state_values": [
+        {
+          "multivariate_feature_option": 36899,
+          "percentage_allocation": 50
+        }
+      ],
+      "audience": {
+        "match": "any",
+        "segments": []
+      }
+    },
+    "created_at": "2026-11-25T18:24:57.346055Z",
+    "updated_at": "2026-11-25T18:24:59.589386Z",
+    "started_at": "2026-11-25T18:24:59.581572Z",
+    "ended_at": null,
+    "rollout_decision": null,
+    "rollout_variant": null
+  },
+  "results": {
+    "as_of": "2026-11-25T18:28:10.276023Z",
+    "last_error_at": null,
+    "refresh_requested_at": "2026-11-25T18:28:10.221940Z",
+    "payload": {
+      "metrics": [
+        {
+          "variants": {
+            "control": {
+              "n": 184,
+              "sum": 55,
+              "sum_squares": 55
+            },
+            "Variant_1": {
+              "n": 216,
+              "sum": 75,
+              "sum_squares": 75
+            }
+          },
+          "inference": {
+            "Variant_1": {
+              "lift": 0.1616161616161616,
+              "ci_low": -0.17268967067396368,
+              "ci_high": 0.4959219939062869,
+              "chance_to_win": 0.8283133651117208
+            }
+          },
+          "metric_id": 479,
+          "conversions_timeseries": {
+            "points": [
+              {
+                "bucket": "2026-11-25T18:00:00+00:00",
+                "converted_identities": {
+                  "control": 55,
+                  "Variant_1": 75
+                }
+              }
+            ],
+            "granularity": "hour"
+          }
+        }
+      ],
+      "srm_p_value": null,
+      "exposures_timeseries": {
+        "points": [
+          {
+            "bucket": "2026-11-25T18:00:00+00:00",
+            "new_identities": {
+              "control": 184,
+              "Variant_1": 216
+            }
+          }
+        ],
+        "granularity": "hour"
+      }
+    },
+    "is_final": false
+  }
+}

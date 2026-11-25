@@ -1,0 +1,97 @@
+{
+  "_constructed": true,
+  "_note": "CONSTRUCTED scenario in Flagsmith's raw response shape. Real SRM cannot be triggered in Flagsmith's Beta (its srm_p_value stayed null on a lopsided live split), so this payload is hand-built. The numbers are computed with Flagsmith's own formula. It is labelled CONSTRUCTED in the UI.",
+  "detail": {
+    "id": 490,
+    "feature": {
+      "id": 304699,
+      "name": "replay_checkout_a",
+      "type": "MULTIVARIATE",
+      "initial_value": "control",
+      "multivariate_options": [
+        {
+          "id": 36899,
+          "uuid": "6007cfea-d266-4aeb-8418-8deddd621500",
+          "type": "unicode",
+          "integer_value": null,
+          "string_value": "variant_a",
+          "boolean_value": null,
+          "default_percentage_allocation": 0,
+          "key": "Variant_1"
+        }
+      ]
+    },
+    "name": "Replay C: one-page checkout",
+    "hypothesis": "A one-page checkout increases completed purchases (CONSTRUCTED scenario).",
+    "status": "running",
+    "metrics": [
+      {
+        "id": 531,
+        "metric": 479,
+        "metric_name": "Replay conversion",
+        "aggregation": "occurrence",
+        "direction": "up",
+        "expected_direction": "increase",
+        "created_at": "2026-11-25T18:24:57.350474Z"
+      }
+    ],
+    "experiment_rollout": {
+      "enabled": true,
+      "rollout_percentage": 100,
+      "feature_state_value": {
+        "type": "string",
+        "value": "control"
+      },
+      "multivariate_feature_state_values": [
+        {
+          "multivariate_feature_option": 36899,
+          "percentage_allocation": 50
+        }
+      ],
+      "audience": {
+        "match": "any",
+        "segments": []
+      }
+    },
+    "created_at": "2026-11-25T18:24:57.346055Z",
+    "updated_at": "2026-11-25T18:24:59.589386Z",
+    "started_at": "2026-11-25T18:24:59.581572Z",
+    "ended_at": null,
+    "rollout_decision": null,
+    "rollout_variant": null
+  },
+  "results": {
+    "as_of": "2026-11-25T18:28:10.276023Z",
+    "last_error_at": null,
+    "refresh_requested_at": "2026-11-25T18:28:10.221940Z",
+    "payload": {
+      "metrics": [
+        {
+          "variants": {
+            "control": {
+              "n": 500,
+              "sum": 60,
+              "sum_squares": 60
+            },
+            "Variant_1": {
+              "n": 380,
+              "sum": 70,
+              "sum_squares": 70
+            }
+          },
+          "inference": {
+            "Variant_1": {
+              "lift": 0.5350877192982455,
+              "ci_low": 0.046953978696303245,
+              "ci_high": 1.0232214599001876,
+              "chance_to_win": 0.9841643201153111
+            }
+          },
+          "metric_id": 479
+        }
+      ],
+      "srm_p_value": null
+    },
+    "is_final": false
+  }
+}

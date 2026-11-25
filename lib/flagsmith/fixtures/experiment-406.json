@@ -1,0 +1,69 @@
+{
+  "_note": "Captured from the live Flagsmith Admin API on 2026-11-24. Experiment 406, SIMULATED traffic (identities sim-*).",
+  "detail": {
+    "id": 406,
+    "feature": {
+      "id": 301614,
+      "name": "checkout_button_test",
+      "type": "MULTIVARIATE",
+      "initial_value": "control",
+      "multivariate_options": [
+        {
+          "id": 36425,
+          "type": "unicode",
+          "string_value": "variant_a",
+          "default_percentage_allocation": 0,
+          "key": "Variant_1"
+        }
+      ]
+    },
+    "name": "Checkout Button Test",
+    "hypothesis": "Variant A will increase test_conversion rate compared to control",
+    "status": "running",
+    "metrics": [
+      {
+        "id": 422,
+        "metric": 355,
+        "metric_name": "Test Conversion",
+        "aggregation": "occurrence",
+        "direction": "up",
+        "expected_direction": "increase"
+      }
+    ],
+    "experiment_rollout": {
+      "enabled": true,
+      "rollout_percentage": 100,
+      "feature_state_value": { "type": "string", "value": "control" },
+      "multivariate_feature_state_values": [
+        { "multivariate_feature_option": 36425, "percentage_allocation": 50 }
+      ]
+    },
+    "started_at": "2026-11-24T04:38:49.268137Z",
+    "ended_at": null
+  },
+  "results": {
+    "as_of": "2026-11-24T05:10:26.235410Z",
+    "last_error_at": null,
+    "payload": {
+      "metrics": [
+        {
+          "variants": {
+            "control": { "n": 147, "sum": 43, "sum_squares": 43 },
+            "Variant_1": { "n": 153, "sum": 46, "sum_squares": 46 }
+          },
+          "inference": {
+            "Variant_1": {
+              "lift": 0.027815777473780192,
+              "ci_low": -0.33180726739477684,
+              "ci_high": 0.3874388223423372,
+              "chance_to_win": 0.5602477617011417
+            }
+          },
+          "metric_id": 355
+        }
+      ],
+      "srm_p_value": null
+    },
+    "is_final": false
+  }
+}
