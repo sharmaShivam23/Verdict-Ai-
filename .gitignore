@@ -45,3 +45,9 @@ scripts/.replay-state.json
 
 # the template is meant to be committed
 !.env.example
+
+# private notes and AI-tool context files (kept on this machine only)
+DEMO-SCRIPT.md
+CLAUDE.md
+AGENTS.md
+.claude/
