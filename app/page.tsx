@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { Suspense } from "react";
-import { referee } from "@/lib/referee";
+import { getConnection } from "@/lib/connection-server";
+import { isFlagsmithConnected } from "@/lib/flagsmith/client";
 import {
   defaultExperimentId,
   listExperiments,
@@ -8,75 +10,95 @@ import {
   parseMode,
   parseScenario,
 } from "@/lib/load-snapshot";
-import {
-  ChecklistPanel,
-  HealthPanel,
-  ModeToggle,
-  SourceBadges,
-  VerdictBanner,
-} from "./ui/dashboard";
+import { referee } from "@/lib/referee";
+import { ChecksCard, NumbersCard, ScenarioTabs, SourceChips, UncertainCard, VerdictHero } from "./ui/dashboard";
+import ExperimentSelect from "./ui/experiment-select";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
-// With cacheComponents enabled, request-time data (searchParams, the Flagsmith
-// fetch) must sit under <Suspense> so the static shell can prerender.
+// Request-time data (searchParams, cookies, the Flagsmith fetch) sits under
+// <Suspense> so the static shell can prerender (cacheComponents is on).
 export default function Home({ searchParams }: { searchParams: SearchParams }) {
   return (
-    <main className="page">
-      <Suspense fallback={<p className="muted">Loading experiment…</p>}>
-        <Dashboard searchParams={searchParams} />
-      </Suspense>
-    </main>
+    <Suspense fallback={<p className="faint">Loading experiment…</p>}>
+      <Experiments searchParams={searchParams} />
+    </Suspense>
   );
 }
 
-async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
+async function Experiments({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
   const mode = parseMode(sp.mode);
   const scenario = parseScenario(sp.scenario);
-  // In live mode the experiment is: the ?experiment= link, else FLAGSMITH_EXPERIMENT_ID,
-  // else the first experiment in the environment.
-  const experiments = mode === "live" ? await listExperiments() : [];
+  const conn = await getConnection();
+  const connected = isFlagsmithConnected(conn);
+
+  // Live: the ?experiment= link, else the pinned one, else the first one.
+  const experiments = mode === "live" ? await listExperiments(conn) : [];
   const experimentId =
-    parseExperiment(sp.experiment) ?? defaultExperimentId() ?? (experiments[0] ? String(experiments[0].id) : undefined);
-  const { snapshot, error } = await loadSnapshot(mode, scenario, experimentId);
+    parseExperiment(sp.experiment) ?? defaultExperimentId(conn) ?? (experiments[0] ? String(experiments[0].id) : undefined);
+  const { snapshot, error } = await loadSnapshot(mode, scenario, conn, experimentId);
   const decision = snapshot ? referee(snapshot) : null;
 
   return (
     <>
-      <header className="top">
+      <header className="page-head">
         <div>
-          <p className="eyebrow">Verdict · Toggle Wars, Track 02</p>
-          <h1>{snapshot ? snapshot.name : "Experiment"}</h1>
-          {snapshot && <p className="muted">{snapshot.hypothesis}</p>}
+          <p className="eyebrow">{mode === "live" ? "Live from Flagsmith" : "Replay · saved results"}</p>
+          <h1>{snapshot ? snapshot.name : "Experiments"}</h1>
+          {snapshot && <p>{snapshot.hypothesis}</p>}
         </div>
-        <ModeToggle
-          mode={mode}
-          scenario={scenario}
-          experiments={experiments}
-          experimentId={experimentId}
-        />
+        <div className="seg" role="group" aria-label="Data source">
+          <Link href="/?mode=live" aria-current={mode === "live" ? "page" : undefined}>
+            Live
+          </Link>
+          <Link href={`/?mode=replay&scenario=${scenario}`} aria-current={mode === "replay" ? "page" : undefined}>
+            Replay
+          </Link>
+        </div>
       </header>
 
+      {mode === "replay" && <ScenarioTabs active={scenario} />}
+
+      {mode === "live" && experiments.length > 0 && (
+        <div className="toolbar">
+          <ExperimentSelect experiments={experiments} current={experimentId} />
+        </div>
+      )}
+
       {error && (
-        <section className="notice" role="alert">
-          <h2>Could not load live data</h2>
-          <p>{error}</p>
-          <p className="muted">
-            Switch to Replay to see the Referee run on saved scenarios.
-          </p>
-        </section>
+        <div className="alert warn" role="alert" style={{ marginBottom: 18 }}>
+          <div>
+            <strong>{connected ? "Couldn't load this experiment" : "Flagsmith isn't connected"}</strong>
+            <p className="muted">{error}</p>
+            <p className="faint" style={{ marginTop: 6 }}>
+              {connected ? (
+                <>Try another experiment, or switch to Replay.</>
+              ) : (
+                <>
+                  <Link href="/connect" style={{ color: "var(--accent-strong)" }}>
+                    Connect your Flagsmith project
+                  </Link>{" "}
+                  or look at the Replay results.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
       )}
 
       {snapshot && decision && (
-        <>
-          <SourceBadges s={snapshot} />
-          <VerdictBanner d={decision} />
-          <div className="grid">
-            <HealthPanel s={snapshot} />
-            <ChecklistPanel d={decision} />
+        <div className="stack">
+          <SourceChips s={snapshot} />
+          <VerdictHero s={snapshot} d={decision} />
+          <div className="grid-2">
+            <NumbersCard s={snapshot} />
+            <div className="stack">
+              <ChecksCard d={decision} />
+              <UncertainCard d={decision} />
+            </div>
           </div>
-        </>
+        </div>
       )}
     </>
   );

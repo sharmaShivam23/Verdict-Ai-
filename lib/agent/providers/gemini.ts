@@ -132,15 +132,28 @@ export function friendlyGeminiError(e: unknown): Error {
   return e instanceof Error ? e : new Error("Unknown Gemini error");
 }
 
-let client: GoogleGenAI | undefined;
+const clients = new Map<string, GoogleGenAI>();
 
-export const callGemini: CallModel = async (history) => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set. Add it to .env.local (get a free key in Google AI Studio).");
-  client ??= new GoogleGenAI({ apiKey });
+/** A model call that uses ONE person's Gemini key (from their connection). */
+export function geminiFor(apiKey: string | undefined, model?: string): CallModel {
+  return async (history) => {
+    if (!apiKey) throw new Error("No Gemini key is connected. Add one on the Connect page (free from Google AI Studio).");
+    let client = clients.get(apiKey);
+    if (!client) {
+      client = new GoogleGenAI({ apiKey });
+      clients.set(apiKey, client);
+    }
+    return generate(client, model ?? DEFAULT_GEMINI_MODEL, history);
+  };
+}
+
+/** Env-configured call, for scripts. */
+export const callGemini: CallModel = (history) => geminiFor(process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL)(history);
+
+async function generate(client: GoogleGenAI, model: string, history: Parameters<CallModel>[0]) {
   try {
     const res = await client.models.generateContent({
-      model: process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
+      model,
       contents: toGeminiContents(history),
       config: {
         systemInstruction: SYSTEM_PROMPT,

@@ -14,7 +14,8 @@ import {
 } from "../flagsmith/client";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { githubFromEnv, type GitHubApi } from "../github/client";
+import { connectionFromEnv, DEFAULT_CLEANUP_PATH, type Connection } from "../connection";
+import { githubFor, type GitHubApi } from "../github/client";
 import { referee } from "../referee";
 import type { Decision, ExperimentSnapshot } from "../types";
 import {
@@ -60,7 +61,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "create_feature",
     description:
-      "Create a multivariate feature flag. The control value is always \"control\". Each variant needs a short key (e.g. \"Variant_1\") and a value. Requires human approval.",
+      "Create a multivariate feature flag. The control (the person's CURRENT version) is created automatically with the value \"control\", so list ONLY the NEW versions as variants, never the current one. Each variant needs a short key (e.g. \"Variant_1\") and a value. Requires human approval.",
     input_schema: {
       type: "object",
       properties: {
@@ -223,38 +224,47 @@ export interface ToolDeps {
     read: (repoRelativePath: string) => Promise<string>;
     listDemo: () => Promise<{ path: string; content: string }[]>;
   };
-  /** GitHub access, or null when GITHUB_TOKEN / GITHUB_REPO are not set. */
+  /** GitHub access, or null when no repo and token are connected. */
   github?: () => GitHubApi | null;
+  /** Whose Flagsmith project and repo to act on. Defaults to .env.local. */
+  conn?: Connection;
 }
 
-async function listDemoFiles(dir = "app/demo"): Promise<{ path: string; content: string }[]> {
+const connOf = (deps: ToolDeps) => deps.conn ?? connectionFromEnv();
+const ep = (deps: ToolDeps, sub: string) => envPath(sub, connOf(deps));
+const pp = (deps: ToolDeps, sub: string) => projectPath(sub, connOf(deps));
+
+async function listLocalFiles(dir: string): Promise<{ path: string; content: string }[]> {
   const out: { path: string; content: string }[] = [];
   for (const e of await readdir(join(process.cwd(), dir), { withFileTypes: true })) {
     const rel = `${dir}/${e.name}`;
-    if (e.isDirectory()) out.push(...(await listDemoFiles(rel)));
+    if (e.isDirectory()) out.push(...(await listLocalFiles(rel)));
     else if (isAllowedCleanupPath(rel)) out.push({ path: rel, content: await readFile(join(process.cwd(), rel), "utf8") });
   }
   return out;
 }
 
-export const defaultDeps: ToolDeps = {
-  request: flagsmithRequest,
-  files: {
-    read: (p) => readFile(join(process.cwd(), p), "utf8"),
-    listDemo: () => listDemoFiles(),
-  },
-  github: () => githubFromEnv(),
-  async loadDecision(id) {
-    const [detail, results] = await Promise.all([
-      flagsmithRequest<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`)),
-      flagsmithRequest<FlagsmithResults>(envPath(`experiments/${id}/results/`)),
-    ]);
-    const snapshot = toSnapshot(detail, results, {
-      synthetic: process.env.VERDICT_TRAFFIC_IS_REAL !== "1",
-    });
-    return { decision: referee(snapshot), snapshot };
-  },
-};
+/** Real dependencies for one connection: its Flagsmith project, its GitHub repo. */
+export function depsFor(conn: Connection): ToolDeps {
+  return {
+    conn,
+    request: (path, opts) => flagsmithRequest(path, opts, conn),
+    files: {
+      // Local files are only this demo repo; a connected repo is read via GitHub.
+      read: (p) => readFile(join(process.cwd(), p), "utf8"),
+      listDemo: () => listLocalFiles(DEFAULT_CLEANUP_PATH.replace(/\/$/, "")),
+    },
+    github: () => githubFor(conn),
+    async loadDecision(id) {
+      const [detail, results] = await Promise.all([
+        flagsmithRequest<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`, conn), {}, conn),
+        flagsmithRequest<FlagsmithResults>(envPath(`experiments/${id}/results/`, conn), {}, conn),
+      ]);
+      const snapshot = toSnapshot(detail, results, { synthetic: !conn.trafficIsReal });
+      return { decision: referee(snapshot), snapshot };
+    },
+  };
+}
 
 const isBadRequest = (e: unknown) => e instanceof FlagsmithHttpError && e.status === 400;
 
@@ -273,7 +283,7 @@ async function createExperimentWithMetric(
   // 2. Spec form: ExperimentMetricInline types `metric` as a string.
   for (const metric of [metricId, String(metricId)]) {
     try {
-      return await deps.request<{ id: number; status: string }>(envPath("experiments/"), {
+      return await deps.request<{ id: number; status: string }>(ep(deps, "experiments/"), {
         method: "POST",
         body: { ...base, metrics: [{ metric, expected_direction: direction }] },
       });
@@ -282,11 +292,11 @@ async function createExperimentWithMetric(
     }
   }
   // 3. Create without metrics, then attach through the dedicated endpoint.
-  const created = await deps.request<{ id: number; status: string }>(envPath("experiments/"), {
+  const created = await deps.request<{ id: number; status: string }>(ep(deps, "experiments/"), {
     method: "POST",
     body: base,
   });
-  await deps.request(envPath(`experiments/${created.id}/metrics/`), {
+  await deps.request(ep(deps, `experiments/${created.id}/metrics/`), {
     method: "POST",
     body: { metric: metricId, expected_direction: direction },
   });
@@ -299,12 +309,12 @@ async function lifecycleCall(
   id: number,
   action: "start" | "pause",
 ): Promise<{ status?: string }> {
-  const path = envPath(`experiments/${id}/${action}/`);
+  const path = ep(deps, `experiments/${id}/${action}/`);
   try {
     return await deps.request<{ status?: string }>(path, { method: "POST" });
   } catch (e) {
     if (!isBadRequest(e)) throw e;
-    const d = await deps.request<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`));
+    const d = await deps.request<FlagsmithExperimentDetail>(ep(deps, `experiments/${id}/`));
     return await deps.request<{ status?: string }>(path, {
       method: "POST",
       body: { name: d.name, hypothesis: d.hypothesis },
@@ -324,7 +334,7 @@ export function makeExecutor(deps: ToolDeps) {
 
     switch (name) {
       case "list_experiments": {
-        const r = await deps.request<unknown>(envPath("experiments/"));
+        const r = await deps.request<unknown>(ep(deps, "experiments/"));
         const items = Array.isArray(r) ? r : ((r as Obj)?.results as unknown[]) ?? [];
         return (items as Obj[]).map((e) => ({ id: e.id, name: e.name, status: e.status }));
       }
@@ -355,7 +365,7 @@ export function makeExecutor(deps: ToolDeps) {
 
       case "refresh_results": {
         const id = int(obj(rawInput), "experiment_id");
-        await deps.request(envPath(`experiments/${id}/results/refresh/`), { method: "POST" });
+        await deps.request(ep(deps, `experiments/${id}/results/refresh/`), { method: "POST" });
         return { status: "refresh_requested", note: "Results update within a few seconds; call get_experiment_verdict." };
       }
 
@@ -365,7 +375,16 @@ export function makeExecutor(deps: ToolDeps) {
         if (!Array.isArray(variants) || variants.length < 1) {
           throw new ToolInputError('"variants" must be a non-empty array.');
         }
-        const created = await deps.request<FeatureResponse>(projectPath("features/"), {
+        // The control is created automatically; listing it again would split traffic
+        // between two identical groups.
+        const dup = variants.find((v) => {
+          const vo = obj(v);
+          return [vo.key, vo.value].some((x) => typeof x === "string" && x.trim().toLowerCase() === "control");
+        });
+        if (dup) {
+          throw new ToolInputError('"control" is created automatically for the current version. List only the NEW versions as variants.');
+        }
+        const created = await deps.request<FeatureResponse>(pp(deps, "features/"), {
           method: "POST",
           body: {
             name: str(o, "name"),
@@ -396,7 +415,7 @@ export function makeExecutor(deps: ToolDeps) {
           if (want && key !== want) {
             // Verified live: PATCH on mv-options returns HTTP 500; a full PUT works.
             const updated = await deps.request<{ key: string | null }>(
-              projectPath(`features/${created.id}/mv-options/${m.id}/`),
+              pp(deps, `features/${created.id}/mv-options/${m.id}/`),
               {
                 method: "PUT",
                 body: {
@@ -425,7 +444,7 @@ export function makeExecutor(deps: ToolDeps) {
 
       case "create_metric": {
         const o = obj(rawInput);
-        const created = await deps.request<{ id: number; name: string }>(envPath("experiment-metrics/"), {
+        const created = await deps.request<{ id: number; name: string }>(ep(deps, "experiment-metrics/"), {
           method: "POST",
           body: {
             name: str(o, "name"),
@@ -498,7 +517,7 @@ export function makeExecutor(deps: ToolDeps) {
         let variantKey: string | undefined;
         if (decisionKind === "variant") {
           decision = (await deps.loadDecision(id)).decision;
-          const detail = await deps.request<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`));
+          const detail = await deps.request<FlagsmithExperimentDetail>(ep(deps, `experiments/${id}/`));
           variantKey = detail.feature.multivariate_options.find((m) => m.id === optionId)?.key;
         }
         const gate = gateComplete(decisionKind, variantKey, decision);
@@ -506,29 +525,48 @@ export function makeExecutor(deps: ToolDeps) {
 
         const body: Obj = { rollout_decision: decisionKind };
         if (decisionKind === "variant") body.rollout_variant = optionId;
-        await deps.request(envPath(`experiments/${id}/complete/`), { method: "POST", body });
+        await deps.request(ep(deps, `experiments/${id}/complete/`), { method: "POST", body });
         return { completed: true, experiment_id: id, rollout_decision: decisionKind, gate: gate.reason };
       }
 
       case "find_flag_references": {
         const flag = str(obj(rawInput), "flag_name");
-        if (!deps.files) throw new ToolInputError("File access is not available here.");
-        const hits = findReferences(await deps.files.listDemo(), flag);
-        return { flag, references: hits, note: hits.length ? undefined : "No pick(useExperiment(...)) call for this flag under app/demo/." };
+        // A connected repo is searched on GitHub (its cleanup folder only);
+        // otherwise this demo repo's app/demo/ folder on disk.
+        const gh = deps.github?.() ?? null;
+        const prefix = gh ? connOf(deps).cleanupPath : DEFAULT_CLEANUP_PATH;
+        let files: { path: string; content: string }[];
+        if (gh) {
+          const paths = (await gh.listFiles(prefix)).filter((p) => isAllowedCleanupPath(p, prefix)).slice(0, 40);
+          files = await Promise.all(paths.map(async (p) => ({ path: p, content: (await gh.getFile(p)).content })));
+        } else {
+          if (!deps.files) throw new ToolInputError("File access is not available here.");
+          files = await deps.files.listDemo();
+        }
+        const hits = findReferences(files, flag);
+        return {
+          flag,
+          searched: gh ? `${connOf(deps).githubRepo}:${prefix}` : `this repo:${prefix}`,
+          references: hits,
+          note: hits.length ? undefined : `No pick(useExperiment(...)) call for this flag under ${prefix}.`,
+        };
       }
 
       case "open_cleanup_pr": {
         const o = obj(rawInput);
         const id = int(o, "experiment_id");
         const path = str(o, "file_path");
-        // 1. Path allow-list: cleanup only ever touches demo-app code.
-        if (!isAllowedCleanupPath(path)) {
-          return { refused: true, reason: "Refused: cleanup may only touch files under app/demo/ (letters, digits, - _ / only, .ts or .tsx)." };
+        // 1. Path allow-list: cleanup only touches the connection's cleanup folder
+        //    (app/demo/ when no repo is connected).
+        const ghForPath = deps.github?.() ?? null;
+        const prefix = ghForPath ? connOf(deps).cleanupPath : DEFAULT_CLEANUP_PATH;
+        if (!isAllowedCleanupPath(path, prefix)) {
+          return { refused: true, reason: `Refused: cleanup may only touch .ts, .tsx, .js or .jsx files under ${prefix}.` };
         }
         if (!deps.files) throw new ToolInputError("File access is not available here.");
 
         // 2. The kept branch comes from the experiment's RECORDED decision.
-        const detail = await deps.request<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`));
+        const detail = await deps.request<FlagsmithExperimentDetail>(ep(deps, `experiments/${id}/`));
         const kept = keptBranchFor(detail);
         if (!kept.ok) return { refused: true, reason: kept.reason };
         const flag = detail.feature.name;
@@ -594,4 +632,5 @@ export function makeExecutor(deps: ToolDeps) {
   };
 }
 
-export const executeTool = makeExecutor(defaultDeps);
+/** For scripts: acts with the .env.local connection. */
+export const executeTool = (name: string, input: unknown) => makeExecutor(depsFor(connectionFromEnv()))(name, input);

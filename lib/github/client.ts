@@ -4,6 +4,8 @@
 // and Pull requests (read and write).
 
 export interface GitHubApi {
+  /** Lists file paths under a folder on the default branch (files only). */
+  listFiles(prefix: string): Promise<string[]>;
   /** Reads a file from the default branch. */
   getFile(path: string): Promise<{ content: string; sha: string; defaultBranch: string }>;
   /** Creates a branch off the default branch, commits the file to it, opens a PR. Returns the PR URL. */
@@ -34,8 +36,18 @@ export function isValidRepo(repo: string): boolean {
 }
 
 export function githubFromEnv(fetchImpl: typeof fetch = fetch): GitHubApi | null {
-  const token = process.env.GITHUB_TOKEN;
-  const repo = process.env.GITHUB_REPO;
+  return githubFrom(process.env.GITHUB_TOKEN, process.env.GITHUB_REPO, fetchImpl);
+}
+
+/** GitHub access for one connection, or null when it has no repo and token. */
+export function githubFor(
+  conn: { githubToken?: string; githubRepo?: string },
+  fetchImpl: typeof fetch = fetch,
+): GitHubApi | null {
+  return githubFrom(conn.githubToken, conn.githubRepo, fetchImpl);
+}
+
+function githubFrom(token: string | undefined, repo: string | undefined, fetchImpl: typeof fetch): GitHubApi | null {
   if (!token || !repo) return null;
   if (!isValidRepo(repo)) throw new GitHubError(0, 'GITHUB_REPO must look like "owner/name".');
   return createGitHubApi(token, repo, fetchImpl);
@@ -76,6 +88,14 @@ export function createGitHubApi(token: string, repo: string, fetchImpl: typeof f
   const encodePath = (p: string) => p.split("/").map(encodeURIComponent).join("/");
 
   return {
+    async listFiles(prefix) {
+      const repoInfo = await gh<{ default_branch: string }>("");
+      const tree = await gh<{ tree: { path: string; type: string }[] }>(
+        `/git/trees/${encodeURIComponent(repoInfo.default_branch)}?recursive=1`,
+      );
+      return tree.tree.filter((t) => t.type === "blob" && t.path.startsWith(prefix)).map((t) => t.path);
+    },
+
     async getFile(path) {
       const repoInfo = await gh<{ default_branch: string }>("");
       const f = await gh<{ content: string; sha: string; encoding: string }>(

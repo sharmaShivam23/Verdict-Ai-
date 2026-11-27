@@ -6,6 +6,18 @@ Built solo for [Toggle Wars](https://www.wemakedevs.org/hackathons/flagsmith), T
 
 <!-- Demo video: paste the link here -->
 
+## What it looks like
+
+![The referee says SHIP: the verdict, a chart per version, and every check with its reason](docs/screenshots/dashboard-ship.png)
+
+![A result that looks like a big win but is marked INVALID, because visitors were not split evenly](docs/screenshots/dashboard-invalid.png)
+
+![A result at 96% that Flagsmith's own banner would roll out, but where the range of likely results still includes zero, so Verdict waits and says why](docs/screenshots/dashboard-flagsmith-says-go.png)
+
+![The agent stops and asks before it changes anything](docs/screenshots/agent-approval.png)
+
+![The page that writes the code to paste into your own website](docs/screenshots/integrate.png)
+
 ## The problem
 
 Say you can't decide whether a button should say "Checkout" or "Buy now". Flagsmith can show half your visitors one wording and half the other, and count who clicks. That part works well.
@@ -65,6 +77,18 @@ These rules are code in [`lib/agent/policy.ts`](lib/agent/policy.ts) and [`lib/a
 
 **Flagsmith's two signals can disagree.** Its rollout banner suggests going ahead at a 95% chance to win. But its 95% interval only clears zero at about 97.5%. In between, Flagsmith's docs describe the same result as both ready to roll out and inconclusive. Verdict waits and says exactly why. Replay scenario D shows a real one: 96.3% win probability, interval from -3.3% to +69.6%.
 
+## Use it on your own site
+
+Nothing here is tied to my account. Each person connects their own project:
+
+1. **Connect** (sidebar): paste your Flagsmith API key, environment key and project id. Optionally add your GitHub repo, the folder the agent may edit, and a free Gemini key. A **Test connection** button really calls Flagsmith and GitHub and tells you what failed. Your details are saved encrypted in a cookie in your own browser. There are no accounts and no database, and someone else on the same site sees only their own experiments.
+2. **Integrate a website** (sidebar): say what you want to test, for example a white and a yellow theme against your current black one. Verdict writes the code to paste into your site, either plain HTML (one script tag, no build step) or React. Then press **Start watching**. It follows Flagsmith's event counter, which only goes up when a real browser reports a visit or a click, so you get proof that your website is connected.
+3. **Agent**: ask it to set the test up. After a winner ships, the cleanup pull request is opened in **your** repository, and it can only edit files in the folder you chose.
+
+`public/shop-example.html` is a one-file shop that uses exactly that snippet, to show it working on a normal page.
+
+If you deploy this for several people, set `VERDICT_SECRET` and keep your own keys out of the server's environment. A visitor on a public address can never use the server's keys: the live pages show nothing and the agent refuses until they connect their own project. The agent keeps its conversations in memory, so run it on one long-lived server, not on serverless functions.
+
 ## How Flagsmith is used
 
 Experiments, metrics and results are the product here, not a side feature.
@@ -104,11 +128,12 @@ To use more, copy `.env.example` to `.env.local` and add keys:
 | Live dashboard (your own experiments) | Flagsmith API key, environment key, project id |
 | The agent page (`/agent`) | the above, plus a free [Gemini key](https://aistudio.google.com) |
 | The demo page (`/demo`) | the Flagsmith environment key again, as `NEXT_PUBLIC_...` |
+| Several people on one deployment | `VERDICT_SECRET`, a long random string, so saved connections stay valid |
 | Cleanup pull requests | `GITHUB_TOKEN` and `GITHUB_REPO` (without them the agent shows the diff) |
 
 Your Flagsmith account needs Experimentation, which is in beta. It was available on mine.
 
-Pages: `/` dashboard, `/agent` the agent, `/demo` a small store whose button wording is the experiment.
+Pages: `/` experiments and verdicts, `/agent` the agent, `/integrate` code for your own website, `/connect` your keys, `/demo` a small store.
 
 ```bash
 npm test          # unit tests
@@ -121,7 +146,9 @@ npm run build
 
 I'd rather say this plainly than have you find it.
 
-- **The traffic is simulated.** Nobody else used this, so a script sends fake visitors (all named `sim-...`). The screens say SIMULATED TRAFFIC, and so does every pull request the agent opens. The numbers are real Flagsmith output for those visitors, but they say nothing about real users.
+- **The traffic in my demos is simulated.** Nobody else used this, so a script sends fake visitors (all named `sim-...`). The screens say SIMULATED TRAFFIC, and so does every pull request the agent opens. The numbers are real Flagsmith output for those visitors, but they say nothing about real users.
+- **The website integration is real, and I tested it.** I ran the generated snippet the way a browser loads it against my Flagsmith project: the visitor was given a version, and Flagsmith's event counter rose by exactly two (one visit, one click). A one-file example shop (`public/shop-example.html`) also ran in a real browser and reported its visit. I have not yet had a stranger's real website use it.
+- **Per-person connections are tested, not battle-tested.** The encryption, the session locking and the rule that strangers can't use the server's keys are covered by tests and by requests I made with a spoofed host. They have not been through a security review.
 - **Replay scenarios A, B and D are real Flagsmith responses**, captured from live experiments and run through the same code as live data. **Scenario C is hand-built**, in Flagsmith's exact response shape. I couldn't get a real broken split to show up in the results, so it carries a red "CONSTRUCTED PAYLOAD" badge.
 - **The cleanup only understands one pattern**: `pick(useExperiment("flag"), { control: "A", variant_a: "B" })`. It refuses anything else with a reason instead of guessing. It is a reference implementation, not a general refactoring tool, and a human still reviews the pull request. It also doesn't touch comments, so an old comment can be left behind.
 - **The independent check covers two-version tests on a yes/no metric.** For anything else the dashboard says "Not audited" and why.

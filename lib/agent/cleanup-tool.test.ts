@@ -3,6 +3,7 @@ import type { GitHubApi } from "../github/client";
 import { referee } from "../referee";
 import { REPLAY_SCENARIOS } from "../replay";
 import { riskOf } from "./policy";
+import { connectionFromEnv } from "../connection";
 import { makeExecutor, TOOLS, type ToolDeps } from "./tools";
 
 process.env.FLAGSMITH_ENVIRONMENT_KEY ??= "test-env-key";
@@ -48,9 +49,13 @@ function setup(opts: { detail?: unknown; github?: GitHubApi | null; files?: Reco
   return { execute: makeExecutor(deps), writes };
 }
 
-function fakeGitHub(base = SOURCE) {
+function fakeGitHub(base = SOURCE, tree: string[] = ["app/demo/b.tsx"]) {
   const calls: Record<string, unknown>[] = [];
   const api: GitHubApi = {
+    listFiles: async (prefix) => {
+      calls.push({ op: "listFiles", prefix });
+      return tree.filter((p) => p.startsWith(prefix));
+    },
     getFile: async (path) => {
       calls.push({ op: "getFile", path });
       return { content: base, sha: "abc123", defaultBranch: "main" };
@@ -170,5 +175,58 @@ describe("open_cleanup_pr with GitHub configured", () => {
     const out = (await execute("open_cleanup_pr", input)) as { refused?: boolean };
     expect(out.refused).toBe(true);
     expect(gh.calls.filter((c) => c.op === "openPullRequest")).toHaveLength(0);
+  });
+});
+
+describe("cleanup in a CONNECTED repo (someone else's project)", () => {
+  const conn = { ...connectionFromEnv({} as NodeJS.ProcessEnv), githubToken: "t", githubRepo: "shop/site", cleanupPath: "src/components/", flagsmithApiKey: "k", environmentKey: "e" };
+
+  function setupRepo(gh: GitHubApi) {
+    const deps: ToolDeps = {
+      conn,
+      request: (async () => completed()) as ToolDeps["request"],
+      loadDecision: async () => ({ decision: referee(REPLAY_SCENARIOS.B), snapshot: REPLAY_SCENARIOS.B }),
+      files: { read: async () => { throw new Error("must not read local files for a connected repo"); }, listDemo: async () => [] },
+      github: () => gh,
+    };
+    return makeExecutor(deps);
+  }
+
+  it("searches the connected repo's cleanup folder, not this repo", async () => {
+    const gh = fakeGitHub(SOURCE, ["src/components/Buy.jsx", "src/other/X.tsx", "README.md"]);
+    const out = (await setupRepo(gh.api)("find_flag_references", { flag_name: "my_flag" })) as {
+      searched: string;
+      references: { path: string }[];
+    };
+    expect(out.searched).toBe("shop/site:src/components/");
+    expect(out.references.map((r) => r.path)).toEqual(["src/components/Buy.jsx"]);
+    expect(gh.calls[0]).toEqual({ op: "listFiles", prefix: "src/components/" });
+  });
+
+  it("opens the PR for a file in that folder, and refuses one outside it", async () => {
+    const gh = fakeGitHub(SOURCE, ["src/components/Buy.jsx"]);
+    const exec = setupRepo(gh.api);
+    const ok = (await exec("open_cleanup_pr", { experiment_id: 9, file_path: "src/components/Buy.jsx" })) as { mode: string };
+    expect(ok.mode).toBe("pull_request");
+    const no = (await exec("open_cleanup_pr", { experiment_id: 9, file_path: "app/demo/b.tsx" })) as { refused?: boolean; reason: string };
+    expect(no.refused).toBe(true);
+    expect(no.reason).toMatch(/src\/components\//);
+  });
+});
+
+describe("create_feature never lists the control as a variant", () => {
+  const exec = makeExecutor({
+    loadDecision: async () => { throw new Error("unused"); },
+    request: (async () => { throw new Error("must not be called"); }) as ToolDeps["request"],
+  });
+
+  it("rejects a variant whose key or value is 'control', before calling Flagsmith", async () => {
+    for (const variants of [
+      [{ key: "control", value: "black" }],
+      [{ key: "Black", value: "Control" }],
+      [{ key: "white", value: "white" }, { key: "x", value: " CONTROL " }],
+    ]) {
+      await expect(exec("create_feature", { name: "f", variants })).rejects.toThrow(/created automatically/);
+    }
   });
 });

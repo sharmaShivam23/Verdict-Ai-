@@ -6,18 +6,23 @@ import { newSession, type AgentSession, type LogEntry, type PendingApproval, typ
 const g = globalThis as unknown as { __verdictSessions?: Map<string, AgentSession> };
 const store = (g.__verdictSessions ??= new Map<string, AgentSession>());
 
-export function getOrCreateSession(id?: string): AgentSession {
+// Each session is locked to the connection that started it, so one person can
+// never continue (or approve actions in) a session that acts on someone else's keys.
+const owners = ((globalThis as unknown as { __verdictOwners?: Map<string, string> }).__verdictOwners ??= new Map());
+
+export function getOrCreateSession(id: string | undefined, owner: string): AgentSession {
   if (id) {
     const existing = store.get(id);
-    if (existing) return existing;
+    if (existing && owners.get(id) === owner) return existing;
   }
   const s = newSession(crypto.randomUUID());
   store.set(s.id, s);
+  owners.set(s.id, owner);
   return s;
 }
 
-export function getSession(id: string): AgentSession | undefined {
-  return store.get(id);
+export function getSession(id: string, owner: string): AgentSession | undefined {
+  return owners.get(id) === owner ? store.get(id) : undefined;
 }
 
 /** What the browser is allowed to see: never the raw API history. */

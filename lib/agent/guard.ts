@@ -1,20 +1,19 @@
-// The agent endpoints can write to Flagsmith with an admin key, so they are
-// local-only and CSRF-resistant by default.
+// The agent endpoints can write to a Flagsmith project with an admin key, so:
+//  - a request from this machine may use the server's keys or its own saved ones;
+//  - a remote request may ONLY act with the caller's own saved connection, never the server's;
+//  - every request must be same-origin JSON (CSRF resistant).
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
-function hostname(hostHeader: string | null): string {
-  return (hostHeader ?? "").replace(/:\d+$/, "").toLowerCase();
-}
+import { isLocalHost, type Connection } from "../connection";
 
 /** Returns an error Response if the request must be rejected, else null. */
-export function rejectIfUnsafe(req: Request): Response | null {
+export function rejectIfUnsafe(req: Request, conn: Connection): Response | null {
   const host = req.headers.get("host");
 
-  // 1. Only reachable from localhost unless explicitly opened up.
-  if (process.env.VERDICT_ALLOW_REMOTE !== "1" && !LOCAL_HOSTS.has(hostname(host))) {
+  // 1. Remote callers must bring their own keys. (VERDICT_ALLOW_REMOTE=1 opens the server's keys to everyone: single-owner use only.)
+  const remote = !isLocalHost(host);
+  if (remote && process.env.VERDICT_ALLOW_REMOTE !== "1" && conn.source !== "browser") {
     return Response.json(
-      { error: "The agent API is local-only. Set VERDICT_ALLOW_REMOTE=1 and add real authentication before exposing it." },
+      { error: "Connect your own Flagsmith project first (Connect page). This server's keys are not available to remote visitors." },
       { status: 403 },
     );
   }

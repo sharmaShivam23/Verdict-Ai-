@@ -1,11 +1,14 @@
+import { connectionFingerprint } from "@/lib/connection";
+import { getConnection } from "@/lib/connection-server";
 import { rejectIfUnsafe } from "@/lib/agent/guard";
 import { decide } from "@/lib/agent/loop";
-import { callModel } from "@/lib/agent/providers";
+import { modelFor } from "@/lib/agent/providers";
 import { getSession, toPublic } from "@/lib/agent/sessions";
-import { executeTool } from "@/lib/agent/tools";
+import { depsFor, makeExecutor } from "@/lib/agent/tools";
 
 export async function POST(request: Request) {
-  const blocked = rejectIfUnsafe(request);
+  const conn = await getConnection();
+  const blocked = rejectIfUnsafe(request, conn);
   if (blocked) return blocked;
 
   let body: { sessionId?: unknown; toolUseId?: unknown; decision?: unknown; confirm?: unknown };
@@ -25,7 +28,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = getSession(body.sessionId);
+  const session = getSession(body.sessionId, connectionFingerprint(conn));
   if (!session) return Response.json({ error: "Unknown session." }, { status: 404 });
 
   const result = await decide(
@@ -33,7 +36,7 @@ export async function POST(request: Request) {
     body.toolUseId,
     body.decision,
     typeof body.confirm === "string" ? body.confirm : undefined,
-    { callModel, execute: executeTool },
+    { callModel: modelFor(conn), execute: makeExecutor(depsFor(conn)) },
   );
   return Response.json(toPublic(session, result));
 }

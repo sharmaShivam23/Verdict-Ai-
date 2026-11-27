@@ -11,15 +11,21 @@
 // plus removal of imports that are no longer used. Anything it does not
 // recognise is refused with a reason instead of guessed at.
 
+import { DEFAULT_CLEANUP_PATH } from "../connection";
 import type { Decision, ExperimentSnapshot } from "../types";
 
 export class CleanupError extends Error {}
 
-/** Where cleanup is allowed to touch files: demo-app code only. */
-export const CLEANUP_PATH = /^app\/demo\/[A-Za-z0-9_\-/]+\.tsx?$/;
-
-export function isAllowedCleanupPath(p: string): boolean {
-  return CLEANUP_PATH.test(p) && !p.includes("..") && !p.includes("//");
+/**
+ * Where cleanup may touch files: inside ONE folder (the connection's cleanup
+ * path, "app/demo/" by default), only .ts/.tsx/.js/.jsx source files, no hidden
+ * segments, no "..", no doubled slashes.
+ */
+export function isAllowedCleanupPath(p: string, prefix: string = DEFAULT_CLEANUP_PATH): boolean {
+  if (!p.startsWith(prefix)) return false;
+  if (!/^[A-Za-z0-9_\-/.]+\.(tsx?|jsx?)$/.test(p)) return false;
+  if (p.includes("//")) return false;
+  return p.split("/").every((seg) => seg !== "" && seg !== "." && seg !== ".." && !seg.startsWith("."));
 }
 
 // ---------- which branch to keep ----------

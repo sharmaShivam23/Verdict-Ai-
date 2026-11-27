@@ -22,20 +22,20 @@ export default function CheckoutButton() {
   }
 
   return (
-    <div className="demo-card">
+    <div className="card store-card">
       <p className="eyebrow">Study Planner Pro</p>
       <h2>One plan for the whole semester</h2>
       <p className="muted">Auto-schedules revision around your deadlines. $9 a month.</p>
       {clicked ? (
-        <p role="status" className="demo-thanks">
+        <p role="status" className="chip live">
           Thanks. Your click was recorded as a conversion.
         </p>
       ) : (
-        <button type="button" className="demo-cta" onClick={onClick}>
+        <button type="button" className="store-cta" onClick={onClick}>
           {label}
         </button>
       )}
-      <button type="button" className="demo-reset" onClick={resetVisitor}>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={resetVisitor}>
         Try again as a new visitor
       </button>
     </div>

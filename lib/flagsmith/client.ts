@@ -1,22 +1,25 @@
-// Minimal Flagsmith Admin API client. Server-side only: it reads the Admin API
-// key from the environment and must never be imported into browser code.
+// Minimal Flagsmith Admin API client. Server-side only: it uses the Admin API
+// key from a Connection and must never be imported into browser code.
+// Every function takes the Connection to act for; it defaults to .env.local so
+// the command-line scripts keep working unchanged.
 
+import { connectionFromEnv, type Connection } from "../connection";
 import type { FlagsmithExperimentDetail, FlagsmithResults } from "./adapter";
 
-function config() {
-  const apiKey = process.env.FLAGSMITH_API_KEY;
-  const envKey = process.env.FLAGSMITH_ENVIRONMENT_KEY;
-  if (!apiKey) throw new Error("FLAGSMITH_API_KEY is not set");
-  if (!envKey) throw new Error("FLAGSMITH_ENVIRONMENT_KEY is not set");
-  return {
-    apiKey,
-    envKey,
-    projectId: process.env.FLAGSMITH_PROJECT_ID,
-    base: process.env.FLAGSMITH_API_URL ?? "https://api.flagsmith.com/api/v1",
-    // Organisation API keys use "Api-Key"; personal tokens use "Token".
-    scheme: process.env.FLAGSMITH_AUTH_SCHEME ?? "Api-Key",
-  };
+export class NotConnectedError extends Error {}
+
+function config(conn: Connection) {
+  if (!conn.flagsmithApiKey || !conn.environmentKey) {
+    throw new NotConnectedError(
+      conn.source === "browser"
+        ? "Your saved connection is missing the Flagsmith API key or environment key. Open Connect to fix it."
+        : "Flagsmith is not connected. Open Connect, or set FLAGSMITH_API_KEY and FLAGSMITH_ENVIRONMENT_KEY in .env.local.",
+    );
+  }
+  return { apiKey: conn.flagsmithApiKey, envKey: conn.environmentKey, projectId: conn.projectId, base: conn.apiUrl, scheme: conn.authScheme };
 }
+
+export const isFlagsmithConnected = (conn: Connection) => Boolean(conn.flagsmithApiKey && conn.environmentKey);
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -36,8 +39,9 @@ export class FlagsmithHttpError extends Error {
 export async function flagsmithRequest<T>(
   path: string,
   opts: { method?: HttpMethod; body?: unknown } = {},
+  conn: Connection = connectionFromEnv(),
 ): Promise<T> {
-  const c = config();
+  const c = config(conn);
   const method = opts.method ?? "GET";
   const res = await fetch(`${c.base}/${path}`, {
     method,
@@ -60,25 +64,23 @@ export async function flagsmithRequest<T>(
   return (await res.json()) as T;
 }
 
-/** Path scoped to the configured client environment key. */
-export function envPath(sub: string): string {
-  return `environments/${config().envKey}/${sub}`;
+/** Path scoped to the connection's client environment key. */
+export function envPath(sub: string, conn: Connection = connectionFromEnv()): string {
+  return `environments/${config(conn).envKey}/${sub}`;
 }
 
-export function projectPath(sub: string): string {
-  const id = config().projectId;
-  if (!id) throw new Error("FLAGSMITH_PROJECT_ID is not set");
+export function projectPath(sub: string, conn: Connection = connectionFromEnv()): string {
+  const id = config(conn).projectId;
+  if (!id) throw new NotConnectedError("The Flagsmith project id is not set. Open Connect to add it.");
   return `projects/${id}/${sub}`;
 }
 
-export const getExperiment = (id: number | string) =>
-  flagsmithRequest<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`));
+export const getExperiment = (id: number | string, conn: Connection = connectionFromEnv()) =>
+  flagsmithRequest<FlagsmithExperimentDetail>(envPath(`experiments/${id}/`, conn), {}, conn);
 
-export const getResults = (id: number | string) =>
-  flagsmithRequest<FlagsmithResults>(envPath(`experiments/${id}/results/`));
+export const getResults = (id: number | string, conn: Connection = connectionFromEnv()) =>
+  flagsmithRequest<FlagsmithResults>(envPath(`experiments/${id}/results/`, conn), {}, conn);
 
 /** Asks Flagsmith to recompute results. Rate limited to once every 5 minutes. */
-export const refreshResults = (id: number | string) =>
-  flagsmithRequest<unknown>(envPath(`experiments/${id}/results/refresh/`), {
-    method: "POST",
-  });
+export const refreshResults = (id: number | string, conn: Connection = connectionFromEnv()) =>
+  flagsmithRequest<unknown>(envPath(`experiments/${id}/results/refresh/`, conn), { method: "POST" }, conn);

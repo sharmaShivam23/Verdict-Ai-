@@ -11,7 +11,7 @@ export default function DemoStatus() {
   const { checkout_cta_test: flag } = useFlags(["checkout_cta_test"]);
 
   return (
-    <dl className="demo-status" aria-label="What this visitor was served">
+    <dl className="facts" aria-label="What this visitor was served">
       <div>
         <dt>Visitor</dt>
         <dd>{visitorId.slice(0, 12)}…</dd>

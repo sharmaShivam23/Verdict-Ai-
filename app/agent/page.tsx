@@ -1,29 +1,18 @@
-import Link from "next/link";
 import AgentChat from "./agent-chat";
 
-export const metadata = { title: "Verdict agent" };
+export const metadata = { title: "Agent" };
 
 export default function AgentPage() {
   return (
-    <main className="page">
-      <header className="top">
+    <>
+      <header className="page-head">
         <div>
-          <p className="eyebrow">Verdict · Agent</p>
+          <p className="eyebrow">Workspace</p>
           <h1>Experiment agent</h1>
-          <p className="muted">
-            Reads on its own. Asks before every change. Cannot override the Referee.
-          </p>
+          <p>It does the setup work in your Flagsmith project. It reads on its own, asks before every change, and can&apos;t overrule the referee.</p>
         </div>
-        <nav className="toggle" aria-label="Pages">
-          <div className="group">
-            <Link href="/">Dashboard</Link>
-            <Link href="/agent" aria-current="page">
-              Agent
-            </Link>
-          </div>
-        </nav>
       </header>
       <AgentChat />
-    </main>
+    </>
   );
 }

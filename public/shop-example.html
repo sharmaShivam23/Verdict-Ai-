@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en" data-version="control">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Example shop (plain HTML, no build step)</title>
+  <style>
+    :root { --bg:#0e0e10; --fg:#f2f2f4; --accent:#e6e6ea; --accent-fg:#111; }
+    [data-version="white"]  { --bg:#ffffff; --fg:#161616; --accent:#161616; --accent-fg:#fff; }
+    [data-version="yellow"] { --bg:#ffd84a; --fg:#1a1500; --accent:#1a1500; --accent-fg:#ffd84a; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); transition:background .2s,color .2s; }
+    main { width:min(520px, 92vw); display:grid; gap:14px; }
+    h1 { margin:0; font-size:30px; letter-spacing:-.02em; }
+    p { margin:0; opacity:.8; }
+    .cta { margin-top:6px; padding:13px 22px; border:0; border-radius:10px; background:var(--accent); color:var(--accent-fg); font:700 16px system-ui; cursor:pointer; width:fit-content; }
+    .cta:disabled { opacity:.55; cursor:default; }
+    .bar { margin-top:22px; padding:12px 14px; border:1px dashed currentColor; border-radius:10px; font:13px/1.6 ui-monospace, Menlo, monospace; opacity:.85; }
+    .bar b { font-weight:700; }
+    button.link { background:none; border:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; padding:0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Study Planner Pro</h1>
+    <p>One plan for the whole semester. This is a tiny shop written as a single HTML file, to show the Flagsmith snippet working on a normal website.</p>
+    <button class="cta" id="goal" disabled>Loading…</button>
+    <div class="bar" id="bar">Connecting to Flagsmith…</div>
+    <p style="font-size:13px"><button class="link" id="reset">Visit again as a new visitor</button></p>
+  </main>
+
+  <!-- ===== The snippet from Verdict's Integrate page (config comes from the URL here) ===== -->
+  <script src="https://cdn.jsdelivr.net/npm/@flagsmith/flagsmith@12.6.0/index.js"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var ENV_KEY = params.get("env");
+    var FLAG = params.get("flag") || "site_theme";
+    var GOAL = params.get("event") || "sign_up_click";
+    var bar = document.getElementById("bar");
+    var btn = document.getElementById("goal");
+
+    if (!ENV_KEY || !/^[A-Za-z0-9]{8,64}$/.test(ENV_KEY) || !/^[A-Za-z0-9_-]{1,60}$/.test(FLAG) || !/^[A-Za-z0-9_-]{1,60}$/.test(GOAL)) {
+      bar.textContent = "Open this page from Verdict's Integrate page. It needs ?env=...&flag=...&event=... in the address.";
+      btn.textContent = "Sign up";
+      return;
+    }
+
+    var id = localStorage.getItem("verdict_visitor");
+    if (!id) {
+      id = "web-" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+      localStorage.setItem("verdict_visitor", id);
+    }
+
+    var flagsmith = window.index.createFlagsmithInstance();
+    flagsmith.init({ environmentID: ENV_KEY, identity: id, enableEvents: true }).then(function () {
+      var flag = flagsmith.getExperimentFlag(FLAG);
+      var version = (flag && flag.enabled && flag.value) || "control";
+      document.documentElement.setAttribute("data-version", version);
+      btn.disabled = false;
+      btn.textContent = "Sign up";
+      var enrolled = flag && flag.experiment && flag.experiment.inExperiment;
+      bar.innerHTML = "Visitor <b>" + id.slice(0, 12) + "…</b><br>Version shown: <b>" + version + "</b><br>" +
+        (enrolled ? "In a running experiment: this visit was counted." : "Not in a running experiment, so nothing is counted.");
+    }).catch(function () {
+      bar.textContent = "Could not reach Flagsmith. Check the environment key.";
+    });
+
+    window.verdictGoal = function () {
+      flagsmith.trackEvent(GOAL);
+      flagsmith.flushEvents();
+    };
+    btn.addEventListener("click", function () {
+      window.verdictGoal();
+      btn.disabled = true;
+      btn.textContent = "Thanks! Click counted.";
+    });
+    document.getElementById("reset").addEventListener("click", function () {
+      localStorage.removeItem("verdict_visitor");
+      location.reload();
+    });
+  })();
+  </script>
+</body>
+</html>

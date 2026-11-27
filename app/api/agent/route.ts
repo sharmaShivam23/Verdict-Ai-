@@ -1,13 +1,16 @@
+import { connectionFingerprint } from "@/lib/connection";
+import { getConnection } from "@/lib/connection-server";
 import { rejectIfUnsafe } from "@/lib/agent/guard";
 import { sendUserMessage } from "@/lib/agent/loop";
-import { callModel } from "@/lib/agent/providers";
+import { modelFor } from "@/lib/agent/providers";
 import { getOrCreateSession, toPublic } from "@/lib/agent/sessions";
-import { executeTool } from "@/lib/agent/tools";
+import { depsFor, makeExecutor } from "@/lib/agent/tools";
 
 const MAX_MESSAGE_CHARS = 4000;
 
 export async function POST(request: Request) {
-  const blocked = rejectIfUnsafe(request);
+  const conn = await getConnection();
+  const blocked = rejectIfUnsafe(request, conn);
   if (blocked) return blocked;
 
   let body: { sessionId?: unknown; message?: unknown };
@@ -24,7 +27,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = getOrCreateSession(typeof body.sessionId === "string" ? body.sessionId : undefined);
-  const result = await sendUserMessage(session, message, { callModel, execute: executeTool });
+  // Act with the caller's own connection (their saved keys, or .env.local when local).
+  const session = getOrCreateSession(
+    typeof body.sessionId === "string" ? body.sessionId : undefined,
+    connectionFingerprint(conn),
+  );
+  const result = await sendUserMessage(session, message, {
+    callModel: modelFor(conn),
+    execute: makeExecutor(depsFor(conn)),
+  });
   return Response.json(toPublic(session, result));
 }
