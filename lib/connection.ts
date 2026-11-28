@@ -143,7 +143,13 @@ let devSecret: string | undefined;
 export function sealingSecret(env: NodeJS.ProcessEnv = process.env): string {
   const s = clean(env.VERDICT_SECRET);
   if (s) return s;
-  devSecret ??= randomBytes(32).toString("hex");
+  // Kept on globalThis, not a module variable: in `next dev` the Connect page (a Server
+  // Function) and the agent route can load separate copies of this module. With a
+  // per-module secret the agent could not read the cookie the Connect page wrote, and
+  // silently fell back to .env.local, acting on the WRONG Flagsmith project.
+  const g = globalThis as { __verdictDevSecret?: string };
+  g.__verdictDevSecret ??= devSecret ?? randomBytes(32).toString("hex");
+  devSecret = g.__verdictDevSecret;
   return devSecret;
 }
 

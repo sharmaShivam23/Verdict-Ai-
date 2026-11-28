@@ -1,9 +1,20 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { requireUser } from "@/lib/auth/session";
 import { normaliseCleanupPath, connectionFromStored, type StoredConnection } from "@/lib/connection";
-import { clearConnection, saveConnection } from "@/lib/connection-server";
+import {
+  activateConnection,
+  createConnection,
+  loadStored,
+  mergeForEdit,
+  mongoStore,
+  removeConnection,
+  updateConnection,
+} from "@/lib/connections-store";
 import { FlagsmithHttpError, flagsmithRequest, envPath } from "@/lib/flagsmith/client";
+import { resolveGemini } from "@/lib/agent/providers";
 import { githubFor, GitHubError } from "@/lib/github/client";
 
 export interface CheckLine {
@@ -24,11 +35,15 @@ const text = (f: FormData, k: string) => {
   return typeof v === "string" ? v.trim() : "";
 };
 
-function parse(f: FormData): { ok: true; value: StoredConnection } | { ok: false; error: string } {
+type Parsed = { ok: true; value: StoredConnection; label: string; editId?: string } | { ok: false; error: string };
+
+/** `editing` = the person is changing a saved connection, so blank secret fields mean "keep the saved one". */
+function parse(f: FormData): Parsed {
+  const editId = text(f, "id") || undefined;
   const flagsmithApiKey = text(f, "flagsmithApiKey");
   const environmentKey = text(f, "environmentKey");
   const projectId = text(f, "projectId");
-  if (!flagsmithApiKey || !environmentKey || !projectId) {
+  if ((!flagsmithApiKey && !editId) || !environmentKey || !projectId) {
     return { ok: false, error: "Flagsmith API key, environment key and project id are all required." };
   }
   if (!/^\d{1,12}$/.test(projectId)) return { ok: false, error: "The project id is the number in your Flagsmith URL, for example 55600." };
@@ -39,6 +54,8 @@ function parse(f: FormData): { ok: true; value: StoredConnection } | { ok: false
 
   return {
     ok: true,
+    editId,
+    label: text(f, "label"),
     value: {
       flagsmithApiKey,
       authScheme: text(f, "authScheme") === "Token" ? "Token" : "Api-Key",
@@ -109,33 +126,70 @@ async function runChecks(s: StoredConnection): Promise<CheckLine[]> {
     lines.push({ id: "github", label: "GitHub repository", state: "skip", detail: "Not connected. The agent will show cleanup changes as a diff instead of opening a pull request." });
   }
 
+  const sharedModel = !s.geminiApiKey && resolveGemini({}).shared;
   lines.push(
     s.geminiApiKey
-      ? { id: "model", label: "Agent model", state: "ok", detail: "Gemini key provided." }
-      : { id: "model", label: "Agent model", state: "skip", detail: "No Gemini key. The Agent page needs one (free from Google AI Studio)." },
+      ? { id: "model", label: "Agent model", state: "ok", detail: "Your Gemini key is set." }
+      : sharedModel
+        ? { id: "model", label: "Agent model", state: "ok", detail: "No key of your own, so the agent uses this server's shared Gemini key. Add yours to avoid shared limits." }
+        : { id: "model", label: "Agent model", state: "skip", detail: "No Gemini key. The Agent page needs one (free from Google AI Studio)." },
   );
   return lines;
 }
 
+/** For an edit, blank secret fields are filled from the saved connection (only if it is THIS user's). */
+async function withSavedSecrets(userId: string, p: Extract<Parsed, { ok: true }>): Promise<StoredConnection | null> {
+  if (!p.editId) return p.value;
+  const existing = await loadStored(mongoStore, userId, p.editId);
+  return existing ? mergeForEdit(existing, p.value) : null;
+}
+
 export async function testConnection(_prev: ConnectState, formData: FormData): Promise<ConnectState> {
+  const user = await requireUser();
   const p = parse(formData);
   if (!p.ok) return { error: p.error };
-  return { checks: await runChecks(p.value) };
+  const full = await withSavedSecrets(user.id, p);
+  if (!full) return { error: "That connection no longer exists." };
+  return { checks: await runChecks(full) };
 }
 
 export async function saveConnectionAction(_prev: ConnectState, formData: FormData): Promise<ConnectState> {
+  const user = await requireUser();
   const p = parse(formData);
   if (!p.ok) return { error: p.error };
-  const checks = await runChecks(p.value);
+  const full = await withSavedSecrets(user.id, p);
+  if (!full) return { error: "That connection no longer exists." };
+  const checks = await runChecks(full);
   // Never save a connection Flagsmith itself rejects.
   if (checks.find((c) => c.id === "flagsmith")?.state === "no") {
     return { checks, error: "Not saved: Flagsmith rejected these details. Fix the first check and try again." };
   }
-  await saveConnection(p.value);
+  try {
+    if (p.editId) {
+      const rec = await updateConnection(mongoStore, user.id, p.editId, p.label, full);
+      if (!rec) return { checks, error: "That connection no longer exists." };
+    } else {
+      await createConnection(mongoStore, user.id, p.label, full);
+    }
+  } catch (e) {
+    console.error("save connection failed:", e instanceof Error ? e.message : e);
+    return { checks, error: "Could not save to the database. Check MONGODB_URI and that your IP is allowed in MongoDB Atlas." };
+  }
+  revalidatePath("/", "layout");
   return { saved: true, checks };
 }
 
-export async function disconnectAction(): Promise<void> {
-  await clearConnection();
+const idOf = (f: FormData) => text(f, "id");
+
+export async function activateAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  await activateConnection(mongoStore, user.id, idOf(formData));
+  revalidatePath("/", "layout");
+}
+
+export async function deleteAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  await removeConnection(mongoStore, user.id, idOf(formData));
+  revalidatePath("/", "layout");
   redirect("/connect");
 }

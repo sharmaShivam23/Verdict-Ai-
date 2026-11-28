@@ -1,4 +1,5 @@
 import { connectionFingerprint } from "@/lib/connection";
+import { requireUserId } from "@/lib/auth/guard";
 import { getConnection } from "@/lib/connection-server";
 import { rejectIfUnsafe } from "@/lib/agent/guard";
 import { decide } from "@/lib/agent/loop";
@@ -7,6 +8,8 @@ import { getSession, toPublic } from "@/lib/agent/sessions";
 import { depsFor, makeExecutor } from "@/lib/agent/tools";
 
 export async function POST(request: Request) {
+  const auth = await requireUserId();
+  if ("response" in auth) return auth.response;
   const conn = await getConnection();
   const blocked = rejectIfUnsafe(request, conn);
   if (blocked) return blocked;

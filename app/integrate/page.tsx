@@ -1,10 +1,12 @@
 import { Suspense } from "react";
+import { requireUser } from "@/lib/auth/session";
 import { getConnection } from "@/lib/connection-server";
 import IntegrateForm from "./integrate-form";
 
 export const metadata = { title: "Integrate a website" };
 
 async function Body() {
+  await requireUser();
   const c = await getConnection();
   return (
     <>

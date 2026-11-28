@@ -15,7 +15,9 @@ import {
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { connectionFromEnv, DEFAULT_CLEANUP_PATH, type Connection } from "../connection";
+import { readEventCounter } from "../flagsmith/integration";
 import { githubFor, type GitHubApi } from "../github/client";
+import { htmlSnippet, reactSnippets, validateSnippetInput } from "../snippets";
 import { referee } from "../referee";
 import type { Decision, ExperimentSnapshot } from "../types";
 import {
@@ -173,6 +175,29 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ["flag_name"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "generate_integration_snippet",
+    description:
+      "Generate the exact code a person pastes into THEIR website so Flagsmith splits their visitors between the versions and counts the goal. Uses the connected project's client-side environment key (public by design). Call it only after the flag, metric and experiment exist. Read-only: it does not change anything and cannot edit the person's files. site_type is \"html\" for any plain website, or \"react\" for React/Next.js (the only kind the later cleanup pull request can remove). For react, pass `labels` with the real wording, e.g. {\"control\": \"Get started free\", \"start_it\": \"Start it\"}.",
+    input_schema: {
+      type: "object",
+      properties: {
+        site_type: { type: "string", enum: ["html", "react"] },
+        flag: { type: "string", description: "The flag name used in create_feature." },
+        event: { type: "string", description: "The goal event name used in create_metric." },
+        versions: { type: "array", items: { type: "string" }, description: "Variant values from create_feature. NOT control." },
+        labels: { type: "object", additionalProperties: { type: "string" }, description: "Optional wording per version, including \"control\"." },
+      },
+      required: ["site_type", "flag", "event", "versions"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "check_integration",
+    description:
+      "Check whether Flagsmith is receiving events from the person's website (the event counter only rises when a real browser reports in). Read-only. Call it after they say they pasted the code and opened their site.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "open_cleanup_pr",
@@ -367,6 +392,69 @@ export function makeExecutor(deps: ToolDeps) {
         const id = int(obj(rawInput), "experiment_id");
         await deps.request(ep(deps, `experiments/${id}/results/refresh/`), { method: "POST" });
         return { status: "refresh_requested", note: "Results update within a few seconds; call get_experiment_verdict." };
+      }
+
+      case "generate_integration_snippet": {
+        const o = obj(rawInput);
+        const siteType = str(o, "site_type");
+        if (siteType !== "html" && siteType !== "react") throw new ToolInputError('"site_type" must be "html" or "react".');
+        const conn = connOf(deps);
+        if (!conn.environmentKey) {
+          throw new ToolInputError("No Flagsmith environment key is connected. Ask the person to open Connect and add their project.");
+        }
+        const versions = o.versions;
+        if (!Array.isArray(versions) || versions.some((v) => typeof v !== "string")) {
+          throw new ToolInputError('"versions" must be an array of strings.');
+        }
+        let labels: Record<string, string> | undefined;
+        if (o.labels !== undefined) {
+          const l = obj(o.labels);
+          labels = {};
+          for (const [k, v] of Object.entries(l)) {
+            if (typeof v !== "string") throw new ToolInputError(`The wording for "${k}" must be a string.`);
+            labels[k] = v;
+          }
+        }
+        const parsed = validateSnippetInput({
+          environmentKey: conn.environmentKey,
+          flag: str(o, "flag"),
+          event: str(o, "event"),
+          versions: versions as string[],
+          labels,
+        });
+        if (!parsed.ok) throw new ToolInputError(parsed.error);
+        if (siteType === "html") {
+          return {
+            site_type: "html",
+            note: "Paste this into the page you are testing, just before </body>, then fill in the CSS for each version and call verdictGoal() on the goal button.",
+            code: htmlSnippet(parsed.value),
+          };
+        }
+        const r = reactSnippets(parsed.value);
+        return {
+          site_type: "react",
+          note: "Four steps: install the SDK, add the provider around the app (for example in app/layout.tsx), add lib/experiment.ts, then use the button component where the element lives. Add the env line to .env.local AND to the host's environment variables, then restart the dev server.",
+          env_line: r.envLine,
+          install: r.install,
+          provider: r.provider,
+          helper: r.helper,
+          usage: r.usage,
+        };
+      }
+
+      case "check_integration": {
+        const s = await readEventCounter(connOf(deps), (p) => deps.request(p));
+        if (!s.connected) return { status: "not_connected", message: "No Flagsmith project is connected. Open Connect first." };
+        if (s.error) return { status: "error", message: s.error };
+        if (!s.enabled) {
+          return { status: "no_warehouse", message: "No event warehouse is enabled. In Flagsmith: Environment Settings, then Warehouse." };
+        }
+        return {
+          status: s.total > 0 ? "receiving_events" : "no_events_yet",
+          total_events: s.total,
+          last_event_at: s.last,
+          note: "The counter can lag by a minute or two. It does not say whether an event was an exposure or a click.",
+        };
       }
 
       case "create_feature": {

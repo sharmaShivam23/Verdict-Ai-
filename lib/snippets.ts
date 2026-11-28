@@ -12,6 +12,12 @@ export interface SnippetInput {
   event: string;
   /** The NEW versions to test. The current version is always "control". */
   versions: string[];
+  /**
+   * Optional real wording per version, used by the React snippet so the code reads
+   * { control: "Get started free", start_it: "Start it" } instead of placeholders.
+   * Keys are "control" and each version; plain text only.
+   */
+  labels?: Record<string, string>;
 }
 
 const NAME = /^[A-Za-z0-9_-]{1,60}$/;
@@ -28,6 +34,14 @@ export function validateSnippetInput(i: SnippetInput): Validation {
   if (new Set(versions).size !== versions.length) return { ok: false, error: "Each version name must be different." };
   if (versions.includes("control")) return { ok: false, error: 'Do not list "control". Your current version is the control automatically.' };
   if (versions.some((v) => !NAME.test(v))) return { ok: false, error: "Version names can use letters, digits, - and _ only." };
+  if (i.labels) {
+    for (const v of ["control", ...versions]) {
+      const t = i.labels[v];
+      if (t !== undefined && (typeof t !== "string" || t.length === 0 || t.length > 120 || /[\r\n]/.test(t))) {
+        return { ok: false, error: `The wording for "${v}" must be one short line of plain text.` };
+      }
+    }
+  }
   return { ok: true, value: { ...i, versions } };
 }
 
@@ -79,9 +93,12 @@ export function htmlSnippet(i: SnippetInput): string {
 }
 
 /** React / Next.js. Uses the one pattern Verdict's cleanup step can remove later. */
-export function reactSnippets(i: SnippetInput): { install: string; provider: string; usage: string; helper: string } {
-  const branches = ["control", ...i.versions].map((v) => `${q(v)}: ${q(v)}`).join(", ");
+export function reactSnippets(i: SnippetInput): { install: string; provider: string; usage: string; helper: string; envLine: string } {
+  // Real wording when given, else the version name itself as a placeholder to edit.
+  const branches = ["control", ...i.versions].map((v) => `${q(v)}: ${q(i.labels?.[v] ?? v)}`).join(", ");
+  const envLine = `NEXT_PUBLIC_FLAGSMITH_ENVIRONMENT_KEY=${i.environmentKey}`;
   return {
+    envLine,
     install: "npm install @flagsmith/flagsmith",
     provider: `"use client";
 import flagsmith from "@flagsmith/flagsmith";
@@ -98,30 +115,37 @@ function visitorId() {
   return id;
 }
 
+// Put this line in .env.local (and in your host's environment variables):
+//   ${envLine}
+// Without it the page simply shows your current version (control).
+const ENV_KEY = process.env.NEXT_PUBLIC_FLAGSMITH_ENVIRONMENT_KEY;
+
 export default function ExperimentProvider({ children }: { children: React.ReactNode }) {
   const [id] = useState(visitorId);
+  if (!ENV_KEY) return <>{children}</>;
   return (
     <FlagsmithProvider
       flagsmith={flagsmith}
-      options={{ environmentID: ${q(i.environmentKey)}, identity: id, enableEvents: true }}
+      options={{ environmentID: ENV_KEY, identity: id, enableEvents: true }}
     >
       {children}
     </FlagsmithProvider>
   );
 }`,
     usage: `"use client";
-import { useExperiment, useFlagsmith } from "@flagsmith/flagsmith/react";
+import { useContext } from "react";
+import { FlagsmithContext, useExperiment } from "@flagsmith/flagsmith/react";
 import { pick } from "@/lib/experiment";
 
 export default function SignUpButton() {
-  const flagsmith = useFlagsmith();
+  const flagsmith = useContext(FlagsmithContext);
 
   // Asks Flagsmith which version this visitor gets AND records that they saw it.
-  const theme = pick(useExperiment(${q(i.flag)}), { ${branches} });
+  const label = pick(useExperiment(${q(i.flag)}), { ${branches} });
 
   return (
-    <button data-theme={theme} onClick={() => flagsmith.trackEvent(${q(i.event)})}>
-      Sign up
+    <button onClick={() => { flagsmith?.trackEvent(${q(i.event)}); flagsmith?.flushEvents?.(); }}>
+      {label}
     </button>
   );
 }`,

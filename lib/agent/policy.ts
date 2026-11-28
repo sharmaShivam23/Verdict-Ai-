@@ -18,6 +18,8 @@ export const TOOL_RISK = {
   pause_experiment: "write",
   complete_experiment: "irreversible",
   find_flag_references: "read",
+  generate_integration_snippet: "read",
+  check_integration: "read",
   open_cleanup_pr: "write",
 } as const satisfies Record<string, Risk>;
 

@@ -132,8 +132,13 @@ export const IconRefresh = (p: P) => (
   </Svg>
 );
 export const IconLogo = ({ size = 16 }: P) => (
+  // Verdict mark: a "V" whose arms are the two arms of an A/B test.
+  // Left arm = control (muted, hollow end), right arm = winning variant (bold, solid end).
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M5 12.5l4.5 4.5L19 7.5" stroke="#fff" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M6 7.5L11 18" stroke="#fff" strokeOpacity={0.55} strokeWidth={2.2} strokeLinecap="round" />
+    <path d="M11 18L19 5.5" stroke="#fff" strokeWidth={2.8} strokeLinecap="round" />
+    <circle cx="5.2" cy="5.2" r="2" stroke="#fff" strokeOpacity={0.7} strokeWidth={1.6} />
+    <circle cx="19.6" cy="4.6" r="2.1" fill="#fff" />
   </svg>
 );
 

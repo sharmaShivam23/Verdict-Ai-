@@ -1,4 +1,5 @@
 import { connectionFingerprint } from "@/lib/connection";
+import { requireUserId } from "@/lib/auth/guard";
 import { getConnection } from "@/lib/connection-server";
 import { rejectIfUnsafe } from "@/lib/agent/guard";
 import { sendUserMessage } from "@/lib/agent/loop";
@@ -9,6 +10,8 @@ import { depsFor, makeExecutor } from "@/lib/agent/tools";
 const MAX_MESSAGE_CHARS = 4000;
 
 export async function POST(request: Request) {
+  const auth = await requireUserId();
+  if ("response" in auth) return auth.response;
   const conn = await getConnection();
   const blocked = rejectIfUnsafe(request, conn);
   if (blocked) return blocked;

@@ -50,6 +50,8 @@ export async function flagsmithRequest<T>(
       ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    // Never wait forever: a stuck request would freeze the Connect page's Test button.
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) {
     let detail = "";

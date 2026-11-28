@@ -66,6 +66,7 @@ export function createGitHubApi(token: string, repo: string, fetchImpl: typeof f
         ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
       let detail = "";

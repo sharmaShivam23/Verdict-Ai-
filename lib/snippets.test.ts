@@ -61,11 +61,17 @@ describe("reactSnippets", () => {
     expect(s.usage).toContain('trackEvent("sign_up_click")');
   });
 
+  it("uses real wording when given, so the code is ready to paste", () => {
+    const r = reactSnippets({ ...input, versions: ["start_it"], labels: { control: "Get started free", start_it: "Start it" } });
+    expect(r.usage).toContain('{ "control": "Get started free", "start_it": "Start it" }');
+    expect(r.envLine).toBe(`NEXT_PUBLIC_FLAGSMITH_ENVIRONMENT_KEY=${input.environmentKey}`);
+  });
+
   it("uses the one pattern the cleanup tool can remove (checked with the real codemod)", () => {
     const cleaned = applyCleanup(s.usage, "site_theme", "yellow");
-    expect(cleaned.code).toContain('const theme = "yellow";');
+    expect(cleaned.code).toContain('const label = "yellow";');
     expect(cleaned.code).not.toContain("useExperiment");
     expect(cleaned.code).not.toContain("@/lib/experiment");
-    expect(cleaned.code).toContain("useFlagsmith"); // still needed for trackEvent
+    expect(cleaned.code).toContain("FlagsmithContext"); // still needed for trackEvent
   });
 });

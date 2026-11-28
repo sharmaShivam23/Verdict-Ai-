@@ -53,13 +53,13 @@ After a winner ships, the agent opens a GitHub pull request that deletes the los
 
 | Action | Rule |
 |---|---|
-| Read experiments, fetch results, search the demo code | Runs on its own |
+| Read experiments, fetch results, search your code, write the snippet for your site, check events are arriving | Runs on its own (none of these change anything) |
 | Create a flag, metric or experiment; start or pause; open a pull request | Stops and waits for your approval |
 | Complete an experiment (can't be undone) | Needs a typed confirmation, **and** is refused unless the referee says SHIP for exactly that variation |
-| Edit files | Only inside `app/demo/`, and only one code pattern (below) |
+| Edit files | Only inside the folder you chose, and only one code pattern (below). While you set up a test it never edits your files: it gives you the code to paste. |
 | Which version to keep after cleanup | Read from Flagsmith's own record of the rollout decision, not from the model |
 
-These rules are code in [`lib/agent/policy.ts`](lib/agent/policy.ts) and [`lib/agent/tools.ts`](lib/agent/tools.ts), not instructions in a prompt, and they are covered by tests. The agent's API only accepts requests from localhost.
+These rules are code in [`lib/agent/policy.ts`](lib/agent/policy.ts) and [`lib/agent/tools.ts`](lib/agent/tools.ts), not instructions in a prompt, and they are covered by tests. The agent's API refuses anyone who isn't signed in, and refuses cross-site requests.
 
 ## What the referee checks
 
@@ -79,15 +79,24 @@ These rules are code in [`lib/agent/policy.ts`](lib/agent/policy.ts) and [`lib/a
 
 ## Use it on your own site
 
-Nothing here is tied to my account. Each person connects their own project:
+Nothing here is tied to my account. Each person works on their own Flagsmith project.
 
-1. **Connect** (sidebar): paste your Flagsmith API key, environment key and project id. Optionally add your GitHub repo, the folder the agent may edit, and a free Gemini key. A **Test connection** button really calls Flagsmith and GitHub and tells you what failed. Your details are saved encrypted in a cookie in your own browser. There are no accounts and no database, and someone else on the same site sees only their own experiments.
-2. **Integrate a website** (sidebar): say what you want to test, for example a white and a yellow theme against your current black one. Verdict writes the code to paste into your site, either plain HTML (one script tag, no build step) or React. Then press **Start watching**. It follows Flagsmith's event counter, which only goes up when a real browser reports a visit or a click, so you get proof that your website is connected.
-3. **Agent**: ask it to set the test up. After a winner ships, the cleanup pull request is opened in **your** repository, and it can only edit files in the folder you chose.
+**Signing in.** The replay scenarios on the dashboard need no account. For everything that touches a real project (Live results, the agent, Connect, Integrate) you either sign in with GitHub or press **Continue without login**.
+
+- **Sign in with GitHub** creates your account the first time. There is no sign-up form and no password: Verdict only reads your public GitHub profile (scope `read:user`).
+- **Continue without login** gives you the whole app as a guest. You still use your own keys. A guest and their saved projects are kept for 7 days and then deleted automatically.
+- Nobody, guest or not, can use the keys in the server's `.env.local` to reach a Flagsmith project or a repo. Your projects are stored encrypted (AES-256-GCM) in MongoDB, tied to your account, and only a masked summary is ever sent to the browser.
+
+**Then, in the sidebar:**
+
+1. **Connect:** add a project. You paste your Flagsmith API key, environment key and project id, and optionally your GitHub repo, the folder the agent may edit, a GitHub token and a Gemini key. **Test connection** really calls Flagsmith and GitHub and tells you what failed. You can keep several projects, edit or delete them (leave a key blank to keep the saved one), and choose which one is active.
+2. **Agent:** say "I want to integrate my website". It asks one question at a time (plain HTML or React, which element and what it says today, the new wording, what counts as success), then sets the flag, metric and experiment up with your approval at each step, and hands you the code to paste and the environment variable line. After you deploy, it checks that events are arriving, and only then offers to start the experiment. If you don't give it a Gemini key, it uses the server's.
+3. **Integrate a website:** the same code generator as a form, without the chat. Plain HTML (one script tag, no build step) or React. **Start watching** follows Flagsmith's event counter, which only goes up when a real browser reports a visit or a click, so you get proof your site is connected.
+4. After a winner ships, the cleanup pull request is opened in **your** repository, and it can only edit files in the folder you chose.
 
 `public/shop-example.html` is a one-file shop that uses exactly that snippet, to show it working on a normal page.
 
-If you deploy this for several people, set `VERDICT_SECRET` and keep your own keys out of the server's environment. A visitor on a public address can never use the server's keys: the live pages show nothing and the agent refuses until they connect their own project. The agent keeps its conversations in memory, so run it on one long-lived server, not on serverless functions.
+If you deploy this, set `VERDICT_SECRET` to a long random string and point `MONGODB_URI` at a database. Without `VERDICT_SECRET` the server makes a new random secret each time it starts, which logs everyone out and makes saved projects unreadable. The agent keeps its conversations in memory, so run it on one long-lived server, not on serverless functions.
 
 ## How Flagsmith is used
 
@@ -125,15 +134,17 @@ To use more, copy `.env.example` to `.env.local` and add keys:
 | You want | You need |
 |---|---|
 | Replay dashboard | nothing |
-| Live dashboard (your own experiments) | Flagsmith API key, environment key, project id |
-| The agent page (`/agent`) | the above, plus a free [Gemini key](https://aistudio.google.com) |
-| The demo page (`/demo`) | the Flagsmith environment key again, as `NEXT_PUBLIC_...` |
-| Several people on one deployment | `VERDICT_SECRET`, a long random string, so saved connections stay valid |
-| Cleanup pull requests | `GITHUB_TOKEN` and `GITHUB_REPO` (without them the agent shows the diff) |
+| Guest mode, saved projects, Live results, the agent | `MONGODB_URI` (a free MongoDB Atlas cluster works; allow your IP in Network Access) and `VERDICT_SECRET`, then your own Flagsmith keys on the Connect page |
+| "Sign in with GitHub" | a GitHub OAuth App: `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, callback URL `http://localhost:3000/api/auth/github/callback` |
+| The agent's language model | a free [Gemini key](https://aistudio.google.com), either in `.env.local` as `GEMINI_API_KEY` (shared by everyone who has no key of their own; set `VERDICT_DISABLE_SHARED_MODEL=1` to stop that) or on each person's Connect page |
+| The demo page (`/demo`) | the Flagsmith environment key as `NEXT_PUBLIC_FLAGSMITH_ENVIRONMENT_KEY` |
+| Cleanup pull requests | a GitHub token and repo, on the Connect page (without them the agent shows the diff) |
+
+The scripts in `scripts/` (traffic simulator, capture helpers) still read their Flagsmith keys from `.env.local`; the web app never does.
 
 Your Flagsmith account needs Experimentation, which is in beta. It was available on mine.
 
-Pages: `/` experiments and verdicts, `/agent` the agent, `/integrate` code for your own website, `/connect` your keys, `/demo` a small store.
+Pages: `/` experiments and verdicts, `/agent` the agent, `/integrate` code for your own website, `/connect` your projects, `/login` sign in, `/demo` a small store.
 
 ```bash
 npm test          # unit tests
@@ -148,13 +159,14 @@ I'd rather say this plainly than have you find it.
 
 - **The traffic in my demos is simulated.** Nobody else used this, so a script sends fake visitors (all named `sim-...`). The screens say SIMULATED TRAFFIC, and so does every pull request the agent opens. The numbers are real Flagsmith output for those visitors, but they say nothing about real users.
 - **The website integration is real, and I tested it.** I ran the generated snippet the way a browser loads it against my Flagsmith project: the visitor was given a version, and Flagsmith's event counter rose by exactly two (one visit, one click). A one-file example shop (`public/shop-example.html`) also ran in a real browser and reported its visit. I have not yet had a stranger's real website use it.
-- **Per-person connections are tested, not battle-tested.** The encryption, the session locking and the rule that strangers can't use the server's keys are covered by tests and by requests I made with a spoofed host. They have not been through a security review.
+- **Accounts and saved projects: partly tested.** The rules (each person sees only their own projects, a blank key on edit keeps the saved one, encryption, session expiry, the OAuth `state` check) are covered by unit tests. Guest mode I ran end to end against a real MongoDB Atlas database: it created a guest, set the cookie, let the guest reach the agent and Connect pages, refused signed-out and forged-cookie requests, and used the server's Gemini key for the agent. **I have not yet completed a real "Sign in with GitHub" round trip**, and none of this has had a security review.
+- **The agent-guided integration chat is built and its tools are tested** (the snippet it writes is checked against the cleanup tool, and the event check against fake Flagsmith responses). I have not yet watched the full conversation run end to end with a live model.
 - **Replay scenarios A, B and D are real Flagsmith responses**, captured from live experiments and run through the same code as live data. **Scenario C is hand-built**, in Flagsmith's exact response shape. I couldn't get a real broken split to show up in the results, so it carries a red "CONSTRUCTED PAYLOAD" badge.
 - **The cleanup only understands one pattern**: `pick(useExperiment("flag"), { control: "A", variant_a: "B" })`. It refuses anything else with a reason instead of guessing. It is a reference implementation, not a general refactoring tool, and a human still reviews the pull request. It also doesn't touch comments, so an old comment can be left behind.
 - **The independent check covers two-version tests on a yes/no metric.** For anything else the dashboard says "Not audited" and why.
 - **Flagsmith Experimentation is in beta.** Results lag by a minute or so and refresh at most every five minutes.
 - Agent conversations live in memory and disappear on restart. That's fine for a demo and wrong for production.
-- I built this alone during the hackathon, with an AI coding assistant. Everything described above is either covered by a test or was checked against live Flagsmith.
+- I built this alone during the hackathon, with an AI coding assistant. Apart from the two items above that say otherwise, what is described here is either covered by a test or was checked against live Flagsmith.
 
 ## Things I learned about Flagsmith Experimentation
 
@@ -172,12 +184,19 @@ If you're building on it, these cost me time:
 app/
   page.tsx            dashboard (live and replay)
   agent/              the chat page with approval cards
+  login/              sign in with GitHub, or continue as a guest
+  connect/            your saved projects: add, edit, delete, choose the active one
+  integrate/          code for your own website
   demo/               the store page under test
-  api/agent/          the agent's two endpoints (local only)
+  api/agent/          the agent's two endpoints (sign-in required)
+  api/auth/           GitHub sign-in, guest start, sign out
 lib/
   referee.ts          the verdict and the checklist
   stats.ts            the math, including Flagsmith's formula
   replay.ts           the four replay scenarios
+  connections-store.ts  users and their encrypted projects (MongoDB)
+  auth/               sign-in with GitHub and the session cookie
+  snippets.ts         the code written for your website
   flagsmith/          API client, response adapter, captured real responses
   agent/              loop, policy, tools, cleanup codemod, model adapters (Gemini, Claude)
   github/             opens the pull request
