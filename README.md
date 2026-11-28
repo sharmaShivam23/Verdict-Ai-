@@ -46,7 +46,7 @@ After a winner ships, the agent opens a GitHub pull request that deletes the los
 3. Flagsmith adds it all up. Verdict reads the results through the Admin API.
 4. The referee runs its checks and gives a verdict.
 5. If it says SHIP, you approve completing the experiment by typing `COMPLETE <id>`. The server checks the verdict again by itself and refuses if it isn't SHIP.
-6. The agent opens a pull request that removes the losing code. The body includes the referee's verdict and checklist.
+6. The agent opens a pull request that removes the losing code. The body names the experiment and the winning version, and adds the referee's verdict and checklist when Flagsmith's results can still be read at that point. (For [pull request #1](https://github.com/sharmaShivam23/Verdict-Ai-/pull/1) they could not, so its description says so instead.)
 7. You review and merge.
 
 ## What the agent can and can't do
@@ -157,7 +157,7 @@ npm run build
 
 I'd rather say this plainly than have you find it.
 
-- **The traffic in my demos is simulated.** Nobody else used this, so a script sends fake visitors (all named `sim-...`). The screens say SIMULATED TRAFFIC, and so does every pull request the agent opens. The numbers are real Flagsmith output for those visitors, but they say nothing about real users.
+- **The traffic in my demos is simulated.** Nobody else used this, so a script sends fake visitors (all named `sim-...`). The screens say SIMULATED TRAFFIC. The pull request body carries the same disclosure when it can load the results, but PR #1 could not, so its description does not mention it. The numbers are real Flagsmith output for those visitors, but they say nothing about real users.
 - **The website integration is real, and I tested it.** I ran the generated snippet the way a browser loads it against my Flagsmith project: the visitor was given a version, and Flagsmith's event counter rose by exactly two (one visit, one click). A one-file example shop (`public/shop-example.html`) also ran in a real browser and reported its visit. I have not yet had a stranger's real website use it.
 - **Accounts and saved projects: partly tested.** The rules (each person sees only their own projects, a blank key on edit keeps the saved one, encryption, session expiry, the OAuth `state` check) are covered by unit tests. Guest mode I ran end to end against a real MongoDB Atlas database: it created a guest, set the cookie, let the guest reach the agent and Connect pages, refused signed-out and forged-cookie requests, and used the server's Gemini key for the agent. **I have not yet completed a real "Sign in with GitHub" round trip**, and none of this has had a security review.
 - **The agent-guided integration chat is built and its tools are tested** (the snippet it writes is checked against the cleanup tool, and the event check against fake Flagsmith responses). I have not yet watched the full conversation run end to end with a live model.
