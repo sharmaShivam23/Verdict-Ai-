@@ -4,7 +4,8 @@ An AI agent that runs A/B tests in Flagsmith, and a referee that decides whether
 
 Built solo for [Toggle Wars](https://www.wemakedevs.org/hackathons/flagsmith), Track 02 (AI Agents and Feature Flags).
 
-<!-- Demo video: paste the link here -->
+- **Live app:** [verdict-ai-topaz.vercel.app](https://verdict-ai-topaz.vercel.app/)
+- **Demo video:** [Watch on YouTube](https://youtu.be/S1iflJGiO0k)
 
 ## What it looks like
 
